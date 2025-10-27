@@ -67,3 +67,74 @@ sudo haproxy -f /etc/haproxy/haproxy.cfg -c
 sudo systemctl enable --now haproxy
 
 # 3️⃣ Cấu hình Keepalived
+3.1 Thông số chung
+• VIP: 10.10.10.100/24
+• NIC: ens33 (thay bằng card của bạn)
+• Password VRRP: @HApass
+• Priority: Node-A 150 (MASTER), Node-B 100 (BACKUP)
+# 3.2 Node-A – /etc/keepalived/keepalived.conf
+vrrp_script chk_haproxy {
+    script "/usr/bin/pgrep haproxy"
+    interval 2
+    weight -20
+}
+
+vrrp_instance VI_1 {
+    state MASTER
+    interface ens33
+    virtual_router_id 51
+    priority 150
+    advert_int 1
+    authentication {
+        auth_type PASS
+        auth_pass @HApass
+    }
+    virtual_ipaddress {
+        10.10.10.100/24 dev ens33 # đoạn này chỉnh sửa VIP cần chỉnh.
+    }
+    track_script {
+        chk_haproxy
+    }
+    notify_master "/etc/keepalived/master.sh"
+    notify_backup "/etc/keepalived/backup.sh"
+    notify_fault  "/etc/keepalived/fault.sh"
+}
+
+# 3.3 Node-B – /etc/keepalived/keepalived.conf
+# Chỉ cần chỉnh đúng phần này
+# Chỉ khác state và priority:
+state BACKUP
+priority 100
+# (Các dòng còn lại giữ nguyên)
+# 3.4 Script thông báo (tuỳ chọn)
+Tạo /etc/keepalived/master.sh (tương tự cho backup/fault) để log:
+#!/bin/bash
+logger "[KEEPALIVED] Switched to MASTER on $(hostname)"
+
+# sau đó phân quyền để thực thi 
+sudo chmod +x /etc/keepalived/*.sh
+
+# 3.5 Khởi động Keepalived
+sudo systemctl enable --now keepalived
+
+# 4️⃣ Kiểm tra & chạy thử
+ping VIP IP 
+
+#Failover test:
+
+Trên Node-A: sudo systemctl stop haproxy hoặc sudo systemctl stop keepalived.
+Quan sát Node-B: ip a sẽ thấy VIP chuyển sang Node-B trong vòng ~2 giây.
+Truy cập lại VIP: dịch vụ vẫn hoạt động.
+Failback: khôi phục HAProxy/Keepalived trên Node-A → VIP tự quay lại
+
+# 5️⃣ Một số tuỳ chỉnh hữu ích
+Mục tiêu | Tuỳ chỉnh | Ghi chú
+HTTPS TLS | Thêm bind *:443 ssl crt /etc/ssl/haproxy.pem trong frontend | Nên dùng Let’s Encrypt
+Email alert | Sử dụng email trong keepalived hoặc Zabbix/Prometheus | Giám sát chủ động
+Tăng tính sẵn sàng | Thêm Node-C (priority 90) | Chỉ cần copy cấu hình
+
+# 6️⃣ Khắc phục lỗi thường gặp
+Triệu chứng | Nguyên nhân | Cách xử lý
+VIP không ping được | Keepalived chưa chạy / sai interface | Kiểm tra systemctl status keepalived, sửa interface
+VIP flapping liên tục | Trùng virtual_router_id hoặc advert_int khác | Đồng bộ thông số trên cả 2 node
+HAProxy không khởi động | Lỗi cú pháp config | sudo haproxy -c -f /etc/haproxy/haproxy.cfg
