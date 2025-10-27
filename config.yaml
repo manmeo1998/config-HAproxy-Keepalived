@@ -1,0 +1,69 @@
+# Mô hình bao gồm 2 Node 1 master và 1 backup và 1 app
+Client  --->  VIP 10.10.10.100  
+                 │
+        ┌────────┴────────┐
+        │                 │
+ Node-A (10.10.10.11)  Node-B (10.10.10.12)
+   • HAProxy              • HAProxy
+   • Keepalived (MASTER)  • Keepalived (BACKUP)
+   -------------------------------------------
+   |              10.10.10.13                | 
+   |              APP Server                 |
+   |-----------------------------------------|
+# update package
+sudo apt update
+sudo reboot
+# Cài đặt gói cần thiết
+sudo apt install -y haproxy keepalived curl net-tools
+# Tắt IPv6 (tùy chọn) nếu bạn không dùng: sửa /etc/sysctl.conf và thêm
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+
+Sau đó sudo sysctl -p
+
+# Cấu hình HAProxy
+# Tập tin: /etc/haproxy/haproxy.cfg (giống nhau trên hai node)
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    stats socket /run/haproxy/admin.sock mode 660 level admin
+    chroot /var/lib/haproxy
+    user haproxy
+    group haproxy
+    daemon
+    ca-base /etc/ssl/certs
+    crt-base /etc/ssl/private
+
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  dontlognull
+    timeout connect 5s
+    timeout client  50s
+    timeout server  50s
+    retries  3
+
+frontend fe_web
+    bind *:80 #port này thay đổi của app frontend lưu ý đoạn này
+    default_backend be_web
+
+backend be_web
+    balance roundrobin
+    option httpchk GET /
+    server web1 192.168.1.101:80 check
+    server web2 192.168.1.102:80 check
+
+listen stats
+    bind *:8404
+    stats enable
+    stats uri /stats
+    stats refresh 10s
+# kiểm tra cấu hình
+
+sudo haproxy -f /etc/haproxy/haproxy.cfg -c
+
+# khởi động và bật tự động
+sudo systemctl enable --now haproxy
+
+# 3️⃣ Cấu hình Keepalived
