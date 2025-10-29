@@ -1,0 +1,37 @@
+#B1 Tải và cài đặt
+sudo -i
+mkdir haproxy-node_exporter
+cd haproxy-node_exporter
+wget https://github.com/prometheus/haproxy_exporter/releases/latest/download/haproxy_exporter-0.13.0.linux-amd64.tar.gz
+tar -xvf haproxy_exporter-0.13.0.linux-amd64.tar.gz
+sudo cp haproxy_exporter-0.13.0.linux-amd64/haproxy_exporter /usr/local/bin/
+sudo useradd --no-create-home --shell /bin/false haproxy_exporter
+sudo chown haproxy_exporter:haproxy_exporter /usr/local/bin/haproxy_exporter
+
+#B2 Tạo file systemd service
+
+vi /etc/systemd/system/haproxy_exporter.service
+
+[Unit]
+Description=HAProxy Exporter for Prometheus
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+User=haproxy_exporter
+Group=haproxy_exporter
+Type=simple
+ExecStart=/usr/local/bin/haproxy_exporter \
+  --haproxy.scrape-uri="unix:/run/haproxy/admin.sock"
+
+[Install]
+WantedBy=multi-user.target
+
+#Nếu mà dùng socket khác, sửa lại đường dẫn cho đúng.
+
+#B3 khởi động và enable service
+sudo systemctl daemon-reload
+sudo systemctl start haproxy_exporter
+sudo systemctl enable haproxy_exporter
+sudo systemctl status haproxy_exporter
+
